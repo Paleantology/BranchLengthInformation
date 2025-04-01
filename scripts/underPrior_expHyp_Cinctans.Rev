@@ -1,0 +1,72 @@
+morpho <- readDiscreteCharacterData("data/Cincta_RevBayes_Orig_57.nex")
+
+
+taxa <- morpho.names()
+num_taxa <- morpho.size()
+num_branches <- 2 * num_taxa - 2
+
+moves = VectorMoves()
+monitors = VectorMonitors()
+
+
+br_centroid ~ dnExp(5)
+moves.append(mvScale(br_centroid, weight=2))
+br_len_lambda ~ dnExp(br_centroid)
+moves.append(mvScale(br_len_lambda, weight=2))
+
+phylogeny ~ dnUniformTopologyBranchLength(taxa, branchLengthDistribution=dnExponential(br_len_lambda))
+moves.append(mvNNI(phylogeny, weight=num_branches/2.0))
+moves.append(mvSPR(phylogeny, weight=num_branches/10.0))
+moves.append(mvBranchLengthScale(phylogeny, weight=num_branches))
+
+tree_length := phylogeny.treeLength()
+alpha_morpho ~ dnUniform( 0, 1E6 )
+rates_morpho := fnDiscretizeDistribution( dnLognormal(ln(alpha_morpho), 0.01), 4 ) #Moves on the parameters of the Gamma distribution.
+moves.append(mvScale(alpha_morpho, lambda=1, weight=2.0))
+
+n_max_states <- 6
+idx = 1
+morpho_bystate[1] <- morpho
+for (i in 2:n_max_states) {
+  # make local tmp copy of data
+  # only keep character blocks with state space equal to size i
+  morpho_bystate[i] <- morpho
+  morpho_bystate[i].setNumStatesPartition(i)
+  # get number of characters per character size wth i-sized states
+  nc = morpho_bystate[i].nchar()
+  # for non-empty character blocks
+  if (nc > 0) {
+    # make i-by-i rate matrix
+    q[idx] <- fnJC(i)
+    # create model of evolution for the character block
+    m_morph[idx] ~ dnPhyloCTMC( tree=phylogeny,
+                                Q=q[idx],
+                                nSites=nc,
+                                siteRates=rates_morpho,
+                                type="Standard")
+    
+    # attach the data
+    m_morph[idx].clamp(morpho_bystate[i])
+    
+    # increment counter
+    idx = idx + 1
+    idx
+  }
+}
+mymodel = model(phylogeny)
+mymodel.ignoreAllData()
+
+monitors.append( mnModel(filename="output/cinct_expHyp_UnderPrior.log", printgen=10))
+monitors.append( mnFile(filename="output/cinct_expHyp_UnderPrior.trees", printgen=10, phylogeny))
+monitors.append(mnScreen(printgen=100))
+
+
+mymcmc = mcmc(mymodel, monitors, moves, nruns=2, combine="mixed")
+mymcmc.run(generations=1000000, tuningInterval=200)
+
+
+
+trace = readTreeTrace("output/cinct_expHyp_UnderPrior.trees")
+mccTree(trace, file = "output/cinct_expHyp_UnderPrior.mccTree.tre")
+
+q()
