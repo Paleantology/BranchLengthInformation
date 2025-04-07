@@ -1,0 +1,63 @@
+#taxa <- readTaxonData("data/cincta_fas_fuzzy.tsv")
+
+#taxa
+morpho <- readDiscreteCharacterData("data/review.nex");
+taxa <- morpho.taxa()
+moves = VectorMoves();
+monitors = VectorMonitors();
+n_taxa <- taxa.size();
+num_branches <- 2 * n_taxa - 2;
+n_branches <- 2 * n_taxa - 2;
+
+fbd_tree ~ dnUniformTimeTree(rootAge=100, taxa);
+moves.append( mvNarrow(fbd_tree, weight=n_taxa) )
+moves.append( mvNNI(fbd_tree, weight=n_taxa/5.0) )
+moves.append( mvFNPR(fbd_tree, weight=n_taxa/5.0) )
+moves.append( mvGPR(fbd_tree, weight=n_taxa/30.0) )
+moves.append( mvSubtreeScale(fbd_tree, weight=n_taxa/3.0) )
+moves.append( mvNodeTimeSlideUniform(fbd_tree, weight=n_taxa) )
+
+###########################################
+###########################################
+#ClockModel
+source("scripts/Dicyno_FBD/model_UCLN.Rev");
+###########################################
+#################################################
+# Define the model of among-site rate variation #
+#################################################
+
+alpha ~ dnGamma(1E8, 0.5);
+moves.append(mvScale(alpha, weight=10.0));
+moves.append(mvScale(alpha, weight=10.0));
+site_rates := fnDiscretizeGamma(alpha, alpha, 4);
+
+###########################################
+idx = 1
+n_max_states <- 5;
+morpho_bystate[1] <- morpho;
+  for (i in 2:n_max_states) {
+    morpho_bystate[i] <- morpho
+    morpho_bystate[i].setNumStatesPartition(i)
+    nc = morpho_bystate[i].nchar()
+  # for non-empty character blocks
+    if (nc > 0) {
+      morpho_bystate[i]
+      Q_one[idx] <- fnJC(i)
+      m_morph[idx] ~ dnPhyloCTMC(tree=fbd_tree, Q = Q_one[idx], type="Standard", siteRates=site_rates, branchRates = branch_rates);
+      m_morph[idx].clamp(morpho_bystate[i])
+      i <- i + 1
+      idx = idx + 1
+      }
+    }
+
+
+mymodel = model(fbd_tree);
+monitors.append(mnModel(filename="output/mcmc_UTP_Dicynos.log", printgen=1000, exclude = v("timeline","F")));
+monitors.append(mnFile(filename="output/mcmc_UTP_Dicynos.trees", printgen=1000, fbd_tree));
+monitors.append(mnScreen(printgen=100));
+mymcmc = mcmc(mymodel, monitors, moves, nruns = 2);
+mymcmc.run(generations=1000000);
+mymcmc.operatorSummary()
+
+
+   q()
